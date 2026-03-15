@@ -1,0 +1,18 @@
+# Datos persistentes — no van en la imagen
+data/
+backups/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Dev
+.vscode/
+.env
+*.log
+
+# Git
+.git/

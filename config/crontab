@@ -1,0 +1,8 @@
+# Pegaso Cron — Tareas programadas
+# (Los schedules de Celery se gestionan vía Celery Beat en el contenedor 'beat')
+
+# Backup nocturno de emergencia (por si Celery Beat falla)
+0 3 * * * /app/scripts/backup.sh >> /app/data/backup.log 2>&1
+
+# Limpieza de logs de más de 7 días
+0 5 * * 0 find /app/data -name "*.log" -mtime +7 -delete >> /dev/null 2>&1

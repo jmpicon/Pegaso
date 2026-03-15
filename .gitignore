@@ -1,0 +1,55 @@
+# ============================================================
+# Pegaso — .gitignore
+# ============================================================
+
+# --- DATOS PERSONALES (nunca subir) ---
+data/
+backups/
+*.sql
+*.dump
+
+# --- SECRETOS ---
+.env
+!.env.example
+
+# --- PYTHON ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+env/
+
+# --- EDITOR ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- SISTEMA ---
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# --- DOCKER ---
+*.override.yml
+
+# --- JUPYTER ---
+.ipynb_checkpoints/
+
+# --- MODELOS / CACHE ---
+.cache/
+*.onnx
+*.bin
+*.safetensors
+models/

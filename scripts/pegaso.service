@@ -1,0 +1,30 @@
+[Unit]
+Description=Pegaso IA Personal — Docker Compose
+Documentation=https://github.com/jmpicon/pegaso
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+WorkingDirectory=/home/jmpicon/Documentos/Pegaso
+User=jmpicon
+Group=jmpicon
+
+# Arranque: esperar a que Docker esté listo
+ExecStartPre=/usr/bin/docker info
+ExecStart=/usr/bin/docker compose -f docker-compose.mvp.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.mvp.yml down
+ExecReload=/usr/bin/docker compose -f docker-compose.mvp.yml restart
+
+Restart=on-failure
+RestartSec=30s
+TimeoutStartSec=180s
+TimeoutStopSec=30s
+
+# Variables de entorno
+Environment=COMPOSE_PROJECT_NAME=pegaso
+EnvironmentFile=/home/jmpicon/Documentos/Pegaso/.env
+
+[Install]
+WantedBy=multi-user.target

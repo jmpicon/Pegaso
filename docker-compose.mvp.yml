@@ -1,0 +1,260 @@
+networks:
+  pegaso-net:
+    driver: bridge
+
+services:
+
+  # ============================================================
+  # LLM ENGINE — vLLM con GPU RTX 4060
+  # ============================================================
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: pegaso-vllm
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    command: >
+      --model ${LLM_MODEL}
+      --quantization awq
+      --gpu-memory-utilization 0.65
+      --max-model-len 8192
+      --enable-prefix-caching
+    ports:
+      - "8008:8000"
+    restart: unless-stopped
+    networks:
+      - pegaso-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/v1/models || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ============================================================
+  # BASE DE DATOS — PostgreSQL (historial de conversaciones)
+  # ============================================================
+  db:
+    image: postgres:15-alpine
+    container_name: pegaso-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./data/pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - pegaso-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # CACHE & BROKER — Redis
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: pegaso-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - ./data/redis:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - pegaso-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # MEMORIA VECTORIAL — Qdrant
+  # ============================================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: pegaso-qdrant
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    networks:
+      - pegaso-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c 'echo > /dev/tcp/localhost/6333' && echo ok || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # BUSCADOR PRIVADO — SearXNG
+  # ============================================================
+  searxng:
+    image: searxng/searxng:latest
+    container_name: pegaso-search
+    volumes:
+      - ./config/searxng:/etc/searxng
+    ports:
+      - "8081:8080"
+    networks:
+      - pegaso-net
+    restart: unless-stopped
+
+  # ============================================================
+  # CORE API — FastAPI (STT, TTS, RAG, Chat)
+  # ============================================================
+  api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    container_name: pegaso-api
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./data/vault:/app/data/vault:ro
+      - ./data/digests:/app/data/digests
+    ports:
+      - "8080:8080"
+    networks:
+      - pegaso-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # WORKER CELERY — Tareas asíncronas (indexación, digest)
+  # ============================================================
+  worker:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    container_name: pegaso-worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    command: celery -A src.worker.tasks worker --loglevel=info --concurrency=2 -Q default,indexing
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./data/vault:/app/data/vault
+      - ./data/digests:/app/data/digests
+    networks:
+      - pegaso-net
+    restart: unless-stopped
+
+  # ============================================================
+  # CELERY BEAT — Scheduler para tareas programadas
+  # ============================================================
+  beat:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    container_name: pegaso-beat
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    command: celery -A src.worker.tasks beat --loglevel=info --scheduler redbeat.RedBeatScheduler
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+    networks:
+      - pegaso-net
+    restart: unless-stopped
+
+  # ============================================================
+  # VAULT WATCHER — Indexación incremental en tiempo real
+  # ============================================================
+  watcher:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    container_name: pegaso-watcher
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    command: python -m src.services.watcher
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./data/vault:/app/data/vault
+    networks:
+      - pegaso-net
+    restart: unless-stopped
+
+  # ============================================================
+  # INTERFAZ WEB — Open-WebUI
+  # ============================================================
+  ui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: pegaso-ui
+    ports:
+      - "3000:8080"
+    environment:
+      - OPENAI_API_BASE_URL=http://api:8080/v1
+      - OPENAI_API_KEY=local-pegaso
+      - WEBUI_SECRET_KEY=${SECRET_KEY}
+      - ENABLE_OLLAMA_API=false
+    volumes:
+      - ./data/open-webui:/app/backend/data
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - pegaso-net
+    restart: unless-stopped
+
+  # ============================================================
+  # CRON — Backups automáticos nocturnos
+  # ============================================================
+  cron:
+    build:
+      context: .
+      dockerfile: docker/cron/Dockerfile
+    container_name: pegaso-cron
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - pegaso-net
+    depends_on:
+      - db
+      - qdrant
+    restart: always

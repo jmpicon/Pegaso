@@ -1,0 +1,26 @@
+allowlist:
+  paths:
+    - /app/data/vault
+    - /app/data/cloud_sync
+    - /home/jmpicon/Documentos/Pegaso/data/vault # Local path reference
+  commands:
+    - ls
+    - cat
+    - grep
+    - git
+    - find
+    - du
+
+capabilities:
+  can_write_vault: false
+  can_execute_shell: true
+  require_confirmation_for_destructive: true
+
+audit_log: /app/data/audit.log
+persona:
+  friend:
+    tone: "Cercano, motivador, empático"
+    daily_checkin: true
+  work:
+    tone: "Profesional, conciso, enfocado en ciberseguridad y dev"
+    standard_checks: ["security", "code_quality", "docs"]
