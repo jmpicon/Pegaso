@@ -7,6 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![GPU](https://img.shields.io/badge/GPU-Optional-76B900?style=flat-square&logo=nvidia&logoColor=white)](https://nvidia.com)
 
 **Pegaso** combina chat local, RAG sobre tus documentos, búsqueda privada, voz offline, automatizaciones y observabilidad del sistema en un único stack Docker.
@@ -340,4 +341,4 @@ Próximas líneas de trabajo:
 
 ## Licencia
 
-Pendiente de definir. Antes de reutilizar el código públicamente, añade un fichero `LICENSE`.
+MIT. Consulta el fichero `LICENSE`.
