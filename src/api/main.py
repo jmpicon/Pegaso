@@ -97,7 +97,10 @@ def _build_messages(system_prompt: str, history: list, user_message: str, contex
 
 
 async def _llm_stream(messages: list) -> AsyncIterator[str]:
-    """Generador de streaming SSE desde vLLM."""
+    """
+    Generador de streaming desde vLLM.
+    Siempre termina limpiamente — nunca propaga excepciones al caller.
+    """
     vllm_url = f"{os.getenv('VLLM_API_BASE', 'http://vllm:8000/v1')}/chat/completions"
     payload = {
         "model": os.getenv("LLM_MODEL"),
@@ -106,24 +109,37 @@ async def _llm_stream(messages: list) -> AsyncIterator[str]:
         "temperature": 0.7,
         "max_tokens": 1024,
     }
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        async with client.stream("POST", vllm_url, json=payload) as resp:
-            async for line in resp.aiter_lines():
-                if line.startswith("data: ") and line != "data: [DONE]":
-                    try:
-                        data = json.loads(line[6:])
-                        delta = data["choices"][0]["delta"].get("content", "")
-                        if delta:
-                            yield delta
-                    except Exception:
-                        pass
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream("POST", vllm_url, json=payload) as resp:
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: ") and line != "data: [DONE]":
+                        try:
+                            data = json.loads(line[6:])
+                            delta = data["choices"][0]["delta"].get("content", "")
+                            if delta:
+                                yield delta
+                        except Exception:
+                            pass
+    except httpx.ConnectError:
+        yield (
+            "\n\n⚠️ **vLLM no disponible.** El motor de IA no está corriendo.\n\n"
+            "Para activarlo:\n"
+            "```bash\n"
+            "bash scripts/install-nvidia-toolkit.sh  # (solo la primera vez)\n"
+            "make start-gpu\n"
+            "```\n"
+            "O conecta un modelo externo actualizando `VLLM_API_BASE` en `.env`."
+        )
+    except Exception as e:
+        yield f"\n\n⚠️ Error de conexión con el LLM: `{type(e).__name__}`."
 
 
 async def _llm_complete(messages: list) -> str:
-    """Llamada síncrona al LLM, devuelve texto completo."""
+    """Llamada al LLM sin streaming. Devuelve texto completo."""
     vllm_url = f"{os.getenv('VLLM_API_BASE', 'http://vllm:8000/v1')}/chat/completions"
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        try:
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(vllm_url, json={
                 "model": os.getenv("LLM_MODEL"),
                 "messages": messages,
@@ -131,8 +147,13 @@ async def _llm_complete(messages: list) -> str:
                 "max_tokens": 1024,
             })
             return resp.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            return f"[Error vLLM: {e}]"
+    except httpx.ConnectError:
+        return (
+            "⚠️ **vLLM no está corriendo.** Para activarlo:\n"
+            "```bash\nbash scripts/install-nvidia-toolkit.sh\nmake start-gpu\n```"
+        )
+    except Exception as e:
+        return f"⚠️ Error conectando con el LLM: `{type(e).__name__}: {e}`"
 
 
 # ─────────────────────────────────────────────
@@ -280,17 +301,42 @@ async def openai_chat(req: OpenAIChatRequest):
             messages.insert(0, {"role": "system", "content": f"Contexto del vault:\n{context}"})
 
     if req.stream:
-        async def stream_openai():
-            async for chunk in _llm_stream(messages):
-                data = {
-                    "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
-                    "object": "chat.completion.chunk",
-                    "choices": [{"delta": {"content": chunk}, "finish_reason": None}],
-                }
-                yield f"data: {json.dumps(data)}\n\n"
-            yield "data: [DONE]\n\n"
+        cid = f"chatcmpl-{uuid.uuid4().hex[:8]}"
 
-        return StreamingResponse(stream_openai(), media_type="text/event-stream")
+        async def stream_openai():
+            try:
+                async for chunk in _llm_stream(messages):
+                    data = {
+                        "id": cid,
+                        "object": "chat.completion.chunk",
+                        "model": req.model,
+                        "choices": [{"index": 0, "delta": {"content": chunk}, "finish_reason": None}],
+                    }
+                    yield f"data: {json.dumps(data)}\n\n"
+                # Señal de fin correcta
+                stop_data = {
+                    "id": cid,
+                    "object": "chat.completion.chunk",
+                    "model": req.model,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                }
+                yield f"data: {json.dumps(stop_data)}\n\n"
+            except Exception as e:
+                err_data = {
+                    "id": cid,
+                    "object": "chat.completion.chunk",
+                    "model": req.model,
+                    "choices": [{"index": 0, "delta": {"content": f"\n⚠️ Error: {e}"}, "finish_reason": "stop"}],
+                }
+                yield f"data: {json.dumps(err_data)}\n\n"
+            finally:
+                yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            stream_openai(),
+            media_type="text/event-stream",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+        )
     else:
         response_text = await _llm_complete(messages)
         return {
