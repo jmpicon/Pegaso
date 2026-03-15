@@ -13,27 +13,33 @@ install:        ## Instalación completa guiada (NVIDIA + batería + systemd + a
 install-service: ## Instala solo el servicio systemd de autoarranque
 	@sudo bash $(PROJECT_DIR)/scripts/install-service.sh
 
+configure-ollama: ## (una vez) Configura Ollama para que Docker pueda acceder al host
+	@sudo bash $(PROJECT_DIR)/scripts/configure-ollama.sh
+
 ## ── CICLO DE VIDA ──────────────────────────────────────────
 start:          ## Arranca Pegaso (sin vLLM — no necesita GPU)
 	@echo "🐎 Iniciando Pegaso..."
 	$(COMPOSE) up -d --build
 	@echo "✅ Pegaso activo — http://localhost:3000"
 
-start-gpu:      ## Arranca Pegaso CON vLLM (requiere NVIDIA Container Toolkit)
-	@echo "🐎 Iniciando Pegaso con GPU (RTX 4060)..."
-	$(COMPOSE) --profile gpu up -d --build
-	@echo "✅ Pegaso + vLLM activos — http://localhost:3000"
-
 stop:           ## Para todos los contenedores
 	@echo "⏹  Parando Pegaso..."
-	$(COMPOSE) --profile gpu down
+	$(COMPOSE) down
 	@echo "✅ Sistema detenido."
 
 restart:        ## Reinicia el sistema completo
 	$(MAKE) stop && $(MAKE) start
 
-restart-gpu:    ## Reinicia con GPU
-	$(MAKE) stop && $(MAKE) start-gpu
+pull:           ## Descarga el modelo LLM en el contenedor Ollama
+	@echo "📥 Descargando modelo $(shell grep LLM_MODEL .env | cut -d= -f2)..."
+	@$(COMPOSE) exec ollama ollama pull $(shell grep LLM_MODEL .env | cut -d= -f2)
+	@echo "✅ Modelo descargado"
+
+models:         ## Lista modelos disponibles en el contenedor Ollama
+	@$(COMPOSE) exec ollama ollama list
+
+logs-llm:       ## Logs del motor LLM (contenedor Ollama)
+	$(COMPOSE) logs --tail=100 -f ollama
 
 rebuild:        ## Reconstruye imágenes desde cero (sin caché)
 	$(COMPOSE) build --no-cache

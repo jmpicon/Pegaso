@@ -5,41 +5,27 @@ networks:
 services:
 
   # ============================================================
-  # LLM ENGINE — vLLM con GPU RTX 4060
-  # Perfil "gpu" — solo arranca con: make start-gpu
+  # LLM ENGINE — Ollama en Docker (usa modelos del host ~/.ollama)
+  # Accesible en la red como ollama:11434
+  # El Ollama del host sigue corriendo — modelos compartidos (solo lectura)
+  # Para cambiar de modelo: edita LLM_MODEL en .env y ejecuta make pull
   # ============================================================
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: pegaso-vllm
-    profiles: [gpu]
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pegaso-ollama
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    command: >
-      --model ${LLM_MODEL}
-      --quantization awq
-      --gpu-memory-utilization 0.65
-      --max-model-len 8192
-      --enable-prefix-caching
+      - /usr/share/ollama/.ollama:/root/.ollama
     ports:
-      - "8008:8000"
-    restart: unless-stopped
+      - "11436:11434"
     networks:
       - pegaso-net
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/v1/models || exit 1"]
-      interval: 30s
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      interval: 20s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 30s
 
   # ============================================================
   # BASE DE DATOS — PostgreSQL (historial de conversaciones)
@@ -132,6 +118,8 @@ services:
       qdrant:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     env_file:
       - .env
