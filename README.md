@@ -1,424 +1,343 @@
-<![CDATA[<div align="center">
+<div align="center">
 
-# 🐎 Pegaso
+# Pegaso
 
-### Your Private, Local-First AI — No Cloud, No Limits
+### IA personal local, privada y autoalojada
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![GPU](https://img.shields.io/badge/GPU-NVIDIA_RTX_4060-76B900?style=flat-square&logo=nvidia&logoColor=white)](https://nvidia.com)
+[![GPU](https://img.shields.io/badge/GPU-Optional-76B900?style=flat-square&logo=nvidia&logoColor=white)](https://nvidia.com)
 
-**Pegaso** is a self-hosted, privacy-first AI assistant that runs entirely on your hardware.
-Chat with your documents, get daily briefings, search the web privately, and automate your workflows — all offline.
+**Pegaso** combina chat local, RAG sobre tus documentos, búsqueda privada, voz offline, automatizaciones y observabilidad del sistema en un único stack Docker.
 
-[Getting Started](#-quick-start) · [Architecture](#-architecture) · [Features](#-features) · [API Docs](#-api-reference)
-
----
+[Inicio rápido](#inicio-rápido) · [Arquitectura](#arquitectura) · [Comandos](#comandos-útiles) · [API](#api-principal)
 
 </div>
 
-## 🧠 What is Pegaso?
+---
 
-Pegaso is not just a chatbot. It's a **personal AI operating system** built on open-source components, designed for developers, security researchers, and power users who value privacy.
+## Qué es Pegaso
 
-It runs a full AI stack locally:
+Pegaso es un asistente de IA "local-first" pensado para correr en tu propia máquina, sin depender de SaaS para lo esencial. El proyecto está orientado a productividad técnica, documentación personal, experimentación con agentes y operación diaria del equipo.
 
-| Component | Role |
+Servicios principales del stack:
+
+| Componente | Función |
 |---|---|
-| **vLLM + Llama-3-8B-AWQ** | Fast GPU inference (OpenAI-compatible API) |
-| **Qdrant** | Vector memory — your long-term AI memory |
-| **PostgreSQL** | Conversation history & metadata |
-| **Celery + Redis** | Async tasks, scheduled jobs (daily digest, backups) |
-| **SearXNG** | Private metasearch engine (your local Google) |
-| **Open-WebUI** | Beautiful chat interface |
-| **Faster-Whisper** | Local speech-to-text (offline STT) |
-| **espeak-ng** | Local text-to-speech (offline TTS) |
+| `FastAPI` | API principal, endpoints de chat, RAG, voz, digest y operaciones |
+| `Open-WebUI` | Interfaz web principal |
+| `PostgreSQL` | Historial de conversaciones |
+| `Qdrant` | Memoria vectorial para RAG |
+| `Redis + Celery` | Cola de tareas y trabajos programados |
+| `SearXNG` | Búsqueda web privada |
+| `vLLM` | Inferencia local compatible con OpenAI, opcional con GPU |
 
 ---
 
-## ✨ Features
+## Funcionalidades
 
-### 🎭 Three AI Personas
+### Personas
 
-Pegaso dynamically switches between three personas based on context:
+Pegaso expone tres perfiles de uso:
 
-- **Pegaso Work** — Expert in DevOps, Cybersecurity, and Development. Analyzes your files, reviews code, and generates documentation.
-- **Pegaso Friend** — Warm and empathetic. Handles wellbeing, motivational messages, and your daily digest.
-- **Pegaso Ops** — System guardian. Manages backups, container health, and system maintenance.
+- `work`: DevOps, desarrollo y ciberseguridad.
+- `friend`: tono cercano, motivación y digest diario.
+- `ops`: diagnóstico del sistema, energía y mantenimiento.
 
-### 📚 Intelligent Vault (RAG)
+### Vault con RAG
 
-Drop files into the `data/vault/` folder — Pegaso indexes them automatically:
+Los documentos añadidos a `data/vault/` se indexan para poder consultarlos desde el chat.
 
-- Supports: `.txt`, `.md`, `.pdf`, `.docx`
-- **Incremental indexing** with SHA-256 deduplication (only re-indexes changed files)
-- **Real-time watcher** — files indexed within 2 seconds of being added
-- Ask questions grounded in your own documents
+- Formatos previstos: `.txt`, `.md`, `.pdf`, `.docx`
+- Reindexación manual con `make index`
+- Watcher dedicado para indexación incremental
 
-### ☀️ Automated Daily Digest
+### Voz offline
 
-Every morning at **07:30** Pegaso generates a personalized briefing:
-1. A motivational greeting
-2. Summary of your recent notes and tasks
-3. A daily tech/security tip
+- `POST /voice/stt`: transcripción de audio a texto
+- `GET /voice/tts`: síntesis de voz con salida WAV
 
-Saved automatically to `data/digests/`. Trigger manually with `make digest`.
+### Digest diario
 
-### 🔒 Privacy by Design
+- `GET /daily_digest`
+- comando rápido: `make digest`
+- salida en `data/digests/`
 
-- **Zero telemetry** — no data leaves your machine
-- **Allowlist-based access** — Pegaso only reads folders you explicitly permit
-- **Audit log** for all file access
-- All models run 100% offline after initial download
+### Operación del sistema
 
-### 🎙️ Voice Interface
+Pegaso incluye endpoints y comandos para revisar salud, batería y perfiles de energía:
 
-- **STT**: Faster-Whisper `base` model (Spanish, VAD-filtered)
-- **TTS**: espeak-ng (offline, no internet needed)
-
-### 🤖 Full Automation
-
-Scheduled via Celery Beat (no cron needed):
-- `07:30` — Daily Digest generation
-- `03:00` — Full system backup (DB + vectors + config)
-- `04:00 Sunday` — Old backup cleanup (>30 days)
-- `Every hour` — Health check of all services
+- `GET /health`
+- `GET /health/full`
+- `GET /ops/battery`
+- `POST /ops/power-profile`
 
 ---
 
-## 🏗️ Architecture
+## Arquitectura
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Your Machine                          │
-│                                                             │
-│  ┌──────────┐    ┌─────────────────────────────────────┐   │
-│  │          │    │           Docker Network             │   │
-│  │  Browser │───▶│  Open-WebUI :3000                   │   │
-│  │          │    │      │                               │   │
-│  └──────────┘    │      ▼                               │   │
-│                  │  Pegaso API :8080  ◀── REST/SSE      │   │
-│  ┌──────────┐    │      │                               │   │
-│  │  Voice   │───▶│  ┌───┴────────────────────────┐     │   │
-│  │ (mic/spk)│    │  │  Services Layer             │     │   │
-│  └──────────┘    │  │  ├── RAG Service (Qdrant)   │     │   │
-│                  │  │  ├── Voice (Whisper/espeak)  │     │   │
-│  ┌──────────┐    │  │  └── Permissions Manager     │     │   │
-│  │  Vault   │───▶│  └───┬────────────────────────┘     │   │
-│  │ (files)  │    │      │                               │   │
-│  └──────────┘    │  ┌───▼───┐  ┌────────┐  ┌────────┐  │   │
-│                  │  │ vLLM  │  │Qdrant  │  │  PG DB │  │   │
-│  GPU RTX 4060    │  │:8008  │  │:6333   │  │:5432   │  │   │
-│  ┌──────────┐    │  └───────┘  └────────┘  └────────┘  │   │
-│  │ VRAM 8GB │───▶│  ┌────────┐ ┌────────┐ ┌─────────┐  │   │
-│  └──────────┘    │  │ Redis  │ │SearXNG │ │ Celery  │  │   │
-│                  │  │:6379   │ │:8081   │ │ Beat    │  │   │
-│                  │  └────────┘ └────────┘ └─────────┘  │   │
-│                  └─────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
+```text
+Browser/Open-WebUI :3000
+        |
+        v
+ FastAPI Pegaso :8080
+   |       |       |
+   |       |       +--> SearXNG :8081
+   |       +----------> PostgreSQL :5432
+   +------------------> Qdrant :6333
+   +------------------> Redis :6379
+   +------------------> Celery worker / beat / watcher
+   +------------------> vLLM :8008 (opcional, perfil gpu)
 ```
 
+Todo el entorno se orquesta con `docker-compose.mvp.yml`.
+
 ---
 
-## ⚙️ Requirements
-
-### Hardware
-| Component | Minimum | Recommended |
-|---|---|---|
-| GPU | NVIDIA 6GB VRAM | RTX 4060 / 3070+ |
-| RAM | 16 GB | 32 GB |
-| Storage | 30 GB | 50 GB SSD |
-| CPU | 4 cores | 8+ cores |
-
-> **No GPU?** Pegaso still runs without vLLM. Connect it to any OpenAI-compatible API (Ollama, LM Studio, OpenAI itself) by updating `VLLM_API_BASE` in your `.env`.
+## Requisitos
 
 ### Software
-- **Docker** 24.0+ with Docker Compose v2
-- **NVIDIA Drivers** (580+ recommended) + **NVIDIA Container Toolkit** (for GPU)
-- Linux (Ubuntu 22.04+, Debian 12, SlimOS)
+
+- Linux
+- Docker 24+ con Compose v2
+- Python 3 para scripts auxiliares
+- Drivers NVIDIA + NVIDIA Container Toolkit si quieres usar `vLLM`
+
+### Hardware
+
+| Recurso | Mínimo orientativo | Recomendado |
+|---|---|---|
+| RAM | 16 GB | 32 GB |
+| CPU | 4 cores | 8+ cores |
+| GPU | opcional | NVIDIA con 6-8 GB VRAM o más |
+
+Si no tienes GPU, Pegaso puede seguir funcionando y también puedes apuntarlo a un backend OpenAI-compatible externo cambiando `VLLM_API_BASE` en `.env`.
 
 ---
 
-## 🚀 Quick Start
+## Inicio rápido
 
-### 1. Clone
+### 1. Clonar el repositorio
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/pegaso.git
-cd pegaso
+git clone https://github.com/jmpicon/Pegaso.git
+cd Pegaso
 ```
 
-### 2. Configure
+### 2. Configurar variables
 
 ```bash
 cp .env.example .env
-nano .env  # Set your SECRET_KEY and optionally change the model
+nano .env
 ```
 
-Key variables:
+Variables importantes:
+
 ```env
-LLM_MODEL=TheBloke/Llama-3-8B-Instruct-AWQ   # ~4GB VRAM with AWQ
-SECRET_KEY=your-random-secret-here
-POSTGRES_PASSWORD=your-secure-password
+SECRET_KEY=tu_clave_secreta
+POSTGRES_PASSWORD=tu_password
+LLM_MODEL=TheBloke/Llama-3-8B-Instruct-AWQ
+VLLM_API_BASE=http://vllm:8000/v1
 ```
 
-### 3. Initialize
+### 3. Inicializar estructura
 
 ```bash
 bash scripts/init.sh
 ```
 
-### 4. Install NVIDIA Container Toolkit (GPU required for vLLM)
+### 4. Arrancar
 
-```bash
-bash scripts/install-nvidia-toolkit.sh
-```
-
-> Skip this step if you're running without GPU — vLLM won't start but everything else will work.
-
-### 5. Launch
+Modo estándar, sin `vLLM` por GPU:
 
 ```bash
 make start
-# or: docker compose -f docker-compose.mvp.yml up -d
 ```
 
-First launch downloads the AI model (~4GB). Grab a coffee ☕
+Modo con GPU y `vLLM`:
 
-### 6. Access
+```bash
+bash scripts/install-nvidia-toolkit.sh
+make start-gpu
+```
 
-| Service | URL | Description |
-|---|---|---|
-| **Chat UI** | http://localhost:3000 | Main interface (Open-WebUI) |
-| **API Docs** | http://localhost:8080/docs | Swagger — all endpoints |
-| **Search** | http://localhost:8081 | Private SearXNG |
-| **Vector DB** | http://localhost:6333/dashboard | Qdrant memory dashboard |
-| **LLM Engine** | http://localhost:8008/v1 | OpenAI-compatible endpoint |
+### 5. Acceder
+
+| Servicio | URL |
+|---|---|
+| UI | `http://localhost:3000` |
+| Swagger | `http://localhost:8080/docs` |
+| SearXNG | `http://localhost:8081` |
+| Qdrant | `http://localhost:6333/dashboard` |
+| vLLM | `http://localhost:8008/v1` |
 
 ---
 
-## 📖 Usage
+## Instalación guiada
 
-### Chat with Pegaso
-
-Using the API directly:
+Si prefieres un asistente completo para preparar entorno, batería, toolkit NVIDIA y servicio systemd:
 
 ```bash
-# Standard chat (streaming)
-curl -X POST http://localhost:8080/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Review my latest security notes", "persona": "work", "stream": true}'
-
-# Friend mode
-curl -X POST http://localhost:8080/chat \
-  -d '{"message": "I am feeling overwhelmed today", "persona": "friend"}'
+sudo bash scripts/install.sh
 ```
 
-### Feed your Vault
+Para instalar solo el autoarranque:
 
 ```bash
-# Add any file — it gets indexed automatically within 2 seconds
-cp my-notes.md data/vault/
-cp report.pdf data/vault/
-cp project-specs.docx data/vault/
-
-# Force re-index everything
-make index
-# or: curl -X POST http://localhost:8080/index/vault
-```
-
-### Daily Digest
-
-```bash
-# Generate now
-make digest
-
-# Automatic: runs every morning at 07:30 via Celery Beat
-# Check today's digest:
-cat data/digests/digest_$(date +%Y%m%d)*.txt
-```
-
-### Voice Interface
-
-```bash
-# Speech-to-Text (upload audio file)
-curl -X POST http://localhost:8080/voice/stt \
-  -F "file=@recording.wav"
-# Returns: {"text": "your transcribed speech", "language": "es"}
-
-# Text-to-Speech (returns WAV audio)
-curl "http://localhost:8080/voice/tts?text=Hello+from+Pegaso" --output response.wav
-aplay response.wav
-```
-
-### Private Web Search
-
-```bash
-make search Q="OWASP top 10 2024"
-# or: curl "http://localhost:8080/search?q=your+query"
+sudo bash scripts/install-service.sh
 ```
 
 ---
 
-## 🛠️ Makefile Commands
-
-```bash
-make help         # Show all commands
-make start        # Start all services
-make stop         # Stop all services
-make restart      # Restart everything
-make status       # Container status
-make health       # Full health check (JSON)
-make logs         # Tail all logs
-make logs-api     # API logs only
-make digest       # Generate daily digest now
-make backup       # Manual backup
-make index        # Re-index vault
-make shell-api    # Shell inside API container
-make shell-db     # PostgreSQL shell
-make qdrant-ui    # Open Qdrant dashboard
-make ui           # Open Pegaso UI in browser
-make clean        # Remove containers + volumes
-```
-
----
-
-## 📡 API Reference
+## Uso básico
 
 ### Chat
-```
-POST /chat                    # Chat with streaming SSE
-GET  /chat/history/{session}  # Get conversation history
-POST /v1/chat/completions     # OpenAI-compatible endpoint
-GET  /v1/models               # List available models
+
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Resume mis notas de seguridad","persona":"work","stream":false}'
 ```
 
-### Vault & Search
-```
-POST /index/vault             # Re-index full vault
-POST /index/file?path=...     # Index specific file
-GET  /search?q=...            # Web search via SearXNG
+### OpenAI-compatible API
+
+```bash
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"pegaso","messages":[{"role":"user","content":"Hola"}]}'
 ```
 
-### Voice
-```
-POST /voice/stt               # Speech-to-text (upload WAV/MP3)
-GET  /voice/tts?text=...      # Text-to-speech (returns WAV)
+### Indexar el vault
+
+```bash
+cp mis_notas.md data/vault/
+make index
 ```
 
-### System
+### Búsqueda privada
+
+```bash
+make search Q="OWASP Top 10"
 ```
-GET  /health                  # Quick health check
-GET  /health/full             # Detailed status of all services
-GET  /daily_digest            # Generate digest on demand
+
+### Voz
+
+```bash
+curl -X POST http://localhost:8080/voice/stt -F "file=@grabacion.wav"
+curl "http://localhost:8080/voice/tts?text=Hola%20desde%20Pegaso" --output respuesta.wav
 ```
 
 ---
 
-## 🤝 Autostart with systemd
-
-Make Pegaso start automatically when your computer boots:
+## Comandos útiles
 
 ```bash
-bash scripts/install-service.sh
-
-# Then:
-sudo systemctl start pegaso
-sudo systemctl status pegaso
-journalctl -u pegaso -f        # Live logs
-```
-
----
-
-## 🔧 Configuration
-
-### Permissions (`config/permissions.yaml`)
-
-Control which folders Pegaso can access:
-
-```yaml
-allowlist:
-  paths:
-    - /app/data/vault
-    - /app/data/cloud_sync    # Sync with rclone/Syncthing
-  commands:
-    - ls
-    - cat
-    - git
-
-capabilities:
-  can_write_vault: false                      # Read-only vault by default
-  require_confirmation_for_destructive: true
-```
-
-### Cloud Sync (Optional)
-
-Pegaso reads from `data/cloud_sync/`. Sync any cloud service with:
-
-```bash
-# Google Drive via rclone
-rclone bisync gdrive: ./data/cloud_sync/gdrive --resync
-
-# Syncthing, Nextcloud, etc. — just point to data/cloud_sync/
-```
-
-See [CONNECTORS.md](CONNECTORS.md) for detailed instructions.
-
----
-
-## 🔐 Backup & Recovery
-
-Automated nightly backups at 03:00 include:
-- PostgreSQL full dump
-- Qdrant vector snapshot
-- Configuration files
-
-```bash
-# Manual backup
+make help
+make start
+make start-gpu
+make stop
+make restart
+make status
+make health
+make logs
+make logs-api
+make logs-worker
+make logs-watcher
+make logs-vllm
+make digest
 make backup
-
-# Backups location
-ls backups/
+make index
+make battery
+make power-balanced
+make power-perf
+make power-save
+make shell-api
+make shell-db
+make redis-cli
+make qdrant-ui
+make ui
+make clean
 ```
 
 ---
 
-## 🗺️ Roadmap
+## API principal
 
-- [ ] Multi-user support with authentication
-- [ ] Web scraping agent (Playwright)
-- [ ] Email integration (IMAP/SMTP)
-- [ ] Calendar & task sync
-- [ ] Image understanding (LLaVA)
-- [ ] Piper TTS for higher quality voice
-- [ ] Enterprise mode (Grafana + Authentik SSO)
-- [ ] Mobile companion app
+### Chat y modelos
+
+```text
+POST /chat
+GET  /chat/history/{session_id}
+POST /v1/chat/completions
+GET  /v1/models
+```
+
+### RAG y búsqueda
+
+```text
+POST /index/vault
+POST /index/file?path=...
+GET  /search?q=...
+```
+
+### Voz
+
+```text
+POST /voice/stt
+GET  /voice/tts?text=...
+```
+
+### Sistema y operaciones
+
+```text
+GET  /health
+GET  /health/full
+GET  /daily_digest
+GET  /ops/battery
+POST /ops/power-profile?profile=balanced
+```
 
 ---
 
-## 🤝 Contributing
+## Estructura del proyecto
 
-PRs are welcome! Please:
-1. Fork the repo
-2. Create a feature branch: `git checkout -b feature/your-idea`
-3. Test with Docker: `make start`
-4. Submit a PR with a clear description
+```text
+.
+├── config/
+├── docker/
+├── scripts/
+├── src/
+├── data/          # ignorado por git
+├── backups/       # ignorado por git
+├── docker-compose.mvp.yml
+├── Makefile
+└── .env.example
+```
 
 ---
 
-## 📄 License
+## Seguridad y datos
 
-MIT — do whatever you want with it. If you build something cool, let us know!
+- `.env`, `data/` y `backups/` están fuera de control de versiones.
+- El repositorio está pensado para trabajar con datos locales y sensibles sin subirlos a Git.
+- Revisa `CONNECTORS.md` y `SECURITY.md` para ampliar conectores y recomendaciones.
 
 ---
 
-<div align="center">
+## Estado del proyecto
 
-**Built with ❤️ for people who believe AI should be private, local, and yours.**
+Proyecto en evolución activa. Algunas piezas están ya operativas y otras siguen siendo una base funcional para iterar.
 
-*Running on a Slimbook with RTX 4060 — no cloud required.*
+Próximas líneas de trabajo:
 
-</div>
-]]>
+- autenticación multiusuario
+- más integraciones externas
+- mejora del pipeline de voz
+- más automatización y observabilidad
+
+---
+
+## Licencia
+
+Pendiente de definir. Antes de reutilizar el código públicamente, añade un fichero `LICENSE`.
