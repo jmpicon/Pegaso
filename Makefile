@@ -7,22 +7,46 @@ PROJECT_DIR = /home/jmpicon/Documentos/Pegaso
 .PHONY: start stop restart logs status digest backup health index clean build help
 
 ## ── CICLO DE VIDA ──────────────────────────────────────────
-start:          ## Arranca todo el sistema Pegaso
+start:          ## Arranca Pegaso (sin vLLM — no necesita GPU)
 	@echo "🐎 Iniciando Pegaso..."
 	$(COMPOSE) up -d --build
 	@echo "✅ Pegaso activo — http://localhost:3000"
 
+start-gpu:      ## Arranca Pegaso CON vLLM (requiere NVIDIA Container Toolkit)
+	@echo "🐎 Iniciando Pegaso con GPU (RTX 4060)..."
+	$(COMPOSE) --profile gpu up -d --build
+	@echo "✅ Pegaso + vLLM activos — http://localhost:3000"
+
 stop:           ## Para todos los contenedores
 	@echo "⏹  Parando Pegaso..."
-	$(COMPOSE) down
+	$(COMPOSE) --profile gpu down
 	@echo "✅ Sistema detenido."
 
 restart:        ## Reinicia el sistema completo
 	$(MAKE) stop && $(MAKE) start
 
+restart-gpu:    ## Reinicia con GPU
+	$(MAKE) stop && $(MAKE) start-gpu
+
 rebuild:        ## Reconstruye imágenes desde cero (sin caché)
 	$(COMPOSE) build --no-cache
 	$(COMPOSE) up -d
+
+## ── BATERÍA ─────────────────────────────────────────────────
+battery:        ## Estado de batería y consumo en tiempo real
+	@curl -s http://localhost:8080/ops/battery | python3 -m json.tool
+
+power-balanced: ## Perfil BALANCED: rendimiento + eficiencia (recomendado en batería)
+	@curl -s -X POST "http://localhost:8080/ops/power-profile?profile=balanced" | python3 -m json.tool
+
+power-perf:     ## Perfil PERFORMANCE: máximo rendimiento (enchufado)
+	@curl -s -X POST "http://localhost:8080/ops/power-profile?profile=performance" | python3 -m json.tool
+
+power-save:     ## Perfil SAVE: máximo ahorro (batería crítica)
+	@curl -s -X POST "http://localhost:8080/ops/power-profile?profile=powersave" | python3 -m json.tool
+
+battery-setup:  ## Instala config TLP optimizada para 7h de batería (requiere sudo)
+	@sudo bash $(PROJECT_DIR)/scripts/battery-setup.sh
 
 ## ── OBSERVABILIDAD ─────────────────────────────────────────
 status:         ## Estado de todos los contenedores

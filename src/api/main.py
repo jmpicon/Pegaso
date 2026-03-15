@@ -384,3 +384,188 @@ async def tts(text: str):
     if audio is None:
         raise HTTPException(status_code=503, detail="TTS no disponible — instala espeak-ng")
     return Response(content=audio, media_type="audio/wav")
+
+
+# ─────────────────────────────────────────────────────────────
+# OPS — Batería y gestión de energía
+# ─────────────────────────────────────────────────────────────
+
+def _read_sysfs(path: str, cast=str):
+    try:
+        return cast(open(path).read().strip())
+    except Exception:
+        return None
+
+
+@app.get("/ops/battery")
+async def battery_status():
+    """Estado completo de batería, CPU, GPU y estimación de autonomía."""
+    import subprocess
+    result = {}
+
+    # ── Batería ──────────────────────────────────────────────
+    for bat in ["BAT0", "BAT1"]:
+        base = f"/sys/class/power_supply/{bat}"
+        if not os.path.exists(base):
+            continue
+        capacity = _read_sysfs(f"{base}/capacity", int)
+        status   = _read_sysfs(f"{base}/status")
+        e_full   = _read_sysfs(f"{base}/energy_full", int)
+        e_now    = _read_sysfs(f"{base}/energy_now", int)
+        p_now    = _read_sysfs(f"{base}/power_now", int)
+
+        bat_info = {
+            "name": bat,
+            "status": status,
+            "capacity_percent": capacity,
+        }
+        if e_full:
+            bat_info["energy_full_wh"] = round(e_full / 1e6, 1)
+        if e_now:
+            bat_info["energy_now_wh"] = round(e_now / 1e6, 1)
+        if p_now and p_now > 0:
+            power_w = p_now / 1e6
+            bat_info["power_consumption_w"] = round(power_w, 2)
+            if e_now:
+                hours = (e_now / 1e6) / power_w
+                bat_info["estimated_hours_remaining"] = round(hours, 1)
+        result["battery"] = bat_info
+        break
+
+    # ── CPU ──────────────────────────────────────────────────
+    governor = _read_sysfs("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+    freq_khz = _read_sysfs("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", int)
+    result["cpu"] = {
+        "model": "Intel i7-13700H",
+        "governor": governor,
+        "current_freq_mhz": round(freq_khz / 1000) if freq_khz else None,
+    }
+
+    # ── Platform Profile ─────────────────────────────────────
+    profile = _read_sysfs("/sys/firmware/acpi/platform_profile")
+    result["platform_profile"] = profile
+
+    # ── GPU NVIDIA ───────────────────────────────────────────
+    try:
+        gpu_out = subprocess.run(
+            ["nvidia-smi",
+             "--query-gpu=name,power.draw,power.limit,temperature.gpu,utilization.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if gpu_out.returncode == 0:
+            parts = [p.strip() for p in gpu_out.stdout.strip().split(",")]
+            result["gpu"] = {
+                "name": parts[0],
+                "power_draw_w": float(parts[1]),
+                "power_limit_w": float(parts[2]),
+                "temperature_c": int(parts[3]),
+                "utilization_pct": int(parts[4]),
+            }
+    except Exception:
+        result["gpu"] = {"status": "unavailable"}
+
+    # ── Recomendaciones inteligentes ─────────────────────────
+    recs = []
+    bat = result.get("battery", {})
+    hours = bat.get("estimated_hours_remaining")
+    power = bat.get("power_consumption_w", 0)
+
+    if hours is not None and hours < 7 and bat.get("status") == "Discharging":
+        recs.append(f"Autonomía estimada: {hours:.1f}h (objetivo: 7h). "
+                    f"Consumo actual: {power:.1f}W.")
+    if governor == "powersave":
+        recs.append("Governor 'powersave' activo — usa 'make power-balanced' para "
+                    "más rendimiento con eficiencia similar (schedutil).")
+    if profile == "low-power":
+        recs.append("Platform profile 'low-power' reduce rendimiento. "
+                    "Ejecuta 'make battery-setup' para config óptima.")
+    gpu_power = result.get("gpu", {}).get("power_draw_w", 0)
+    if gpu_power > 60 and bat.get("status") == "Discharging":
+        recs.append(f"GPU consumiendo {gpu_power:.0f}W en batería. "
+                    f"Si no usas vLLM, para con 'make stop' para ahorrar ~{gpu_power:.0f}W.")
+    if not recs:
+        recs.append("Sistema bien optimizado para batería.")
+
+    result["recommendations"] = recs
+    result["ts"] = datetime.utcnow().isoformat()
+    return result
+
+
+@app.post("/ops/power-profile")
+async def set_power_profile(profile: str):
+    """
+    Cambia el perfil de energía del sistema.
+    Perfiles: performance | balanced | powersave
+    Nota: requiere permisos. Configura sudo NOPASSWD para uso completo.
+    """
+    import subprocess
+    valid = {"performance", "balanced", "powersave", "low-power"}
+    if profile not in valid:
+        raise HTTPException(status_code=400, detail=f"Perfil inválido. Válidos: {valid}")
+
+    results = {}
+
+    # CPU governor
+    governor_map = {
+        "performance": "performance",
+        "balanced": "schedutil",
+        "powersave": "powersave",
+        "low-power": "powersave",
+    }
+    target_gov = governor_map[profile]
+    gov_ok = 0
+    for i in range(20):  # hasta 20 cores
+        path = f"/sys/devices/system/cpu/cpu{i}/cpufreq/scaling_governor"
+        if not os.path.exists(path):
+            break
+        try:
+            with open(path, "w") as f:
+                f.write(target_gov)
+            gov_ok += 1
+        except PermissionError:
+            results["governor"] = f"error: permisos insuficientes — ejecuta 'make battery-setup' como sudo"
+            break
+    else:
+        results["governor"] = f"ok: {target_gov} en {gov_ok} cores"
+
+    if "governor" not in results:
+        results["governor"] = f"ok: {target_gov} en {gov_ok} cores"
+
+    # Platform profile
+    platform_map = {
+        "performance": "performance",
+        "balanced": "balanced",
+        "powersave": "low-power",
+        "low-power": "low-power",
+    }
+    plat_path = "/sys/firmware/acpi/platform_profile"
+    try:
+        with open(plat_path, "w") as f:
+            f.write(platform_map[profile])
+        results["platform_profile"] = f"ok: {platform_map[profile]}"
+    except Exception as e:
+        results["platform_profile"] = f"error: {e}"
+
+    # NVIDIA power limit
+    if profile == "powersave":
+        nvidia_limit = 40
+    elif profile == "balanced":
+        nvidia_limit = 55
+    else:
+        nvidia_limit = 80
+
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "-pl", str(nvidia_limit)],
+            capture_output=True, text=True, timeout=5,
+        )
+        results["nvidia_power_limit_w"] = nvidia_limit if r.returncode == 0 else "error (necesita root)"
+    except Exception:
+        results["nvidia_power_limit_w"] = "unavailable"
+
+    return {
+        "profile": profile,
+        "applied": results,
+        "note": "Para cambios permanentes ejecuta: make battery-setup (requiere sudo)",
+    }
