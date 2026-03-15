@@ -4,7 +4,14 @@
 COMPOSE = docker compose -f docker-compose.mvp.yml
 PROJECT_DIR = /home/jmpicon/Documentos/Pegaso
 
-.PHONY: start stop restart logs status digest backup health index clean build help
+.PHONY: install install-service start stop restart logs status digest backup health index clean build help battery power-balanced power-perf power-save battery-setup
+
+## ── INSTALACIÓN ────────────────────────────────────────────
+install:        ## Instalación completa guiada (NVIDIA + batería + systemd + arranque)
+	@sudo bash $(PROJECT_DIR)/scripts/install.sh
+
+install-service: ## Instala solo el servicio systemd de autoarranque
+	@sudo bash $(PROJECT_DIR)/scripts/install-service.sh
 
 ## ── CICLO DE VIDA ──────────────────────────────────────────
 start:          ## Arranca Pegaso (sin vLLM — no necesita GPU)
