@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![GPU](https://img.shields.io/badge/GPU-Optional-76B900?style=flat-square&logo=nvidia&logoColor=white)](https://nvidia.com)
 
-**Pegaso** combina chat local, RAG sobre tus documentos, búsqueda privada, voz offline, automatizaciones y observabilidad del sistema en un único stack Docker.
+**Pegaso** combina chat local, RAG sobre tus documentos, búsqueda privada, voz offline, automatizaciones y un backend LLM local con Ollama en un único stack Docker.
 
 [Inicio rápido](#inicio-rápido) · [Arquitectura](#arquitectura) · [Comandos](#comandos-útiles) · [API](#api-principal)
 
@@ -32,7 +32,7 @@ Servicios principales del stack:
 | `Qdrant` | Memoria vectorial para RAG |
 | `Redis + Celery` | Cola de tareas y trabajos programados |
 | `SearXNG` | Búsqueda web privada |
-| `vLLM` | Inferencia local compatible con OpenAI, opcional con GPU |
+| `Ollama` | Backend LLM local compatible con OpenAI, cómodo para portátiles y servidores |
 
 ---
 
@@ -65,6 +65,15 @@ Los documentos añadidos a `data/vault/` se indexan para poder consultarlos desd
 - comando rápido: `make digest`
 - salida en `data/digests/`
 
+### Backend LLM local
+
+Pegaso usa Ollama como motor por defecto:
+
+- servicio Docker propio accesible como `ollama:11434`
+- endpoint publicado en host en `http://localhost:11436/v1`
+- selección de modelo con `LLM_MODEL` en `.env`
+- descarga del modelo con `make pull`
+
 ### Operación del sistema
 
 Pegaso incluye endpoints y comandos para revisar salud, batería y perfiles de energía:
@@ -89,7 +98,7 @@ Browser/Open-WebUI :3000
    +------------------> Qdrant :6333
    +------------------> Redis :6379
    +------------------> Celery worker / beat / watcher
-   +------------------> vLLM :8008 (opcional, perfil gpu)
+   +------------------> Ollama :11434
 ```
 
 Todo el entorno se orquesta con `docker-compose.mvp.yml`.
@@ -103,7 +112,8 @@ Todo el entorno se orquesta con `docker-compose.mvp.yml`.
 - Linux
 - Docker 24+ con Compose v2
 - Python 3 para scripts auxiliares
-- Drivers NVIDIA + NVIDIA Container Toolkit si quieres usar `vLLM`
+- Docker es suficiente para el modo base
+- GPU NVIDIA es opcional si quieres acelerar Ollama
 
 ### Hardware
 
@@ -113,7 +123,7 @@ Todo el entorno se orquesta con `docker-compose.mvp.yml`.
 | CPU | 4 cores | 8+ cores |
 | GPU | opcional | NVIDIA con 6-8 GB VRAM o más |
 
-Si no tienes GPU, Pegaso puede seguir funcionando y también puedes apuntarlo a un backend OpenAI-compatible externo cambiando `VLLM_API_BASE` en `.env`.
+Si no tienes GPU, Pegaso puede seguir funcionando con Ollama en CPU. También puedes apuntarlo a otro backend OpenAI-compatible cambiando `VLLM_API_BASE` en `.env`.
 
 ---
 
@@ -138,8 +148,8 @@ Variables importantes:
 ```env
 SECRET_KEY=tu_clave_secreta
 POSTGRES_PASSWORD=tu_password
-LLM_MODEL=TheBloke/Llama-3-8B-Instruct-AWQ
-VLLM_API_BASE=http://vllm:8000/v1
+LLM_MODEL=llama3.2:latest
+VLLM_API_BASE=http://ollama:11434/v1
 ```
 
 ### 3. Inicializar estructura
@@ -148,22 +158,25 @@ VLLM_API_BASE=http://vllm:8000/v1
 bash scripts/init.sh
 ```
 
-### 4. Arrancar
-
-Modo estándar, sin `vLLM` por GPU:
+### 4. Arrancar servicios
 
 ```bash
 make start
 ```
 
-Modo con GPU y `vLLM`:
+### 5. Descargar el modelo LLM
 
 ```bash
-bash scripts/install-nvidia-toolkit.sh
-make start-gpu
+make pull
 ```
 
-### 5. Acceder
+Si quieres que Docker reutilice un Ollama del host o abrirlo a red local, puedes ejecutar antes:
+
+```bash
+make configure-ollama
+```
+
+### 6. Acceder
 
 | Servicio | URL |
 |---|---|
@@ -171,13 +184,13 @@ make start-gpu
 | Swagger | `http://localhost:8080/docs` |
 | SearXNG | `http://localhost:8081` |
 | Qdrant | `http://localhost:6333/dashboard` |
-| vLLM | `http://localhost:8008/v1` |
+| Ollama API | `http://localhost:11436/v1` |
 
 ---
 
 ## Instalación guiada
 
-Si prefieres un asistente completo para preparar entorno, batería, toolkit NVIDIA y servicio systemd:
+Si prefieres un asistente completo para preparar entorno, batería y servicio systemd:
 
 ```bash
 sudo bash scripts/install.sh
@@ -235,17 +248,19 @@ curl "http://localhost:8080/voice/tts?text=Hola%20desde%20Pegaso" --output respu
 
 ```bash
 make help
+make configure-ollama
 make start
-make start-gpu
 make stop
 make restart
+make pull
+make models
 make status
 make health
 make logs
 make logs-api
 make logs-worker
 make logs-watcher
-make logs-vllm
+make logs-llm
 make digest
 make backup
 make index
@@ -322,6 +337,7 @@ POST /ops/power-profile?profile=balanced
 
 - `.env`, `data/` y `backups/` están fuera de control de versiones.
 - El repositorio está pensado para trabajar con datos locales y sensibles sin subirlos a Git.
+- El backend LLM por defecto es Ollama, configurado mediante `LLM_MODEL` y `VLLM_API_BASE`.
 - Revisa `CONNECTORS.md` y `SECURITY.md` para ampliar conectores y recomendaciones.
 
 ---
