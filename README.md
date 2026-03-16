@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![GPU](https://img.shields.io/badge/GPU-Optional-76B900?style=flat-square&logo=nvidia&logoColor=white)](https://nvidia.com)
 
-**Pegaso** combina chat local, RAG sobre tus documentos, búsqueda privada, voz offline, automatizaciones y un backend LLM local con Ollama en un único stack Docker.
+**Pegaso** combina chat local, RAG sobre tus documentos, búsqueda privada, voz offline, automatizaciones, un backend LLM local con Ollama y una CLI opcional con Perplexity para control del sistema.
 
 [Inicio rápido](#inicio-rápido) · [Arquitectura](#arquitectura) · [Comandos](#comandos-útiles) · [API](#api-principal)
 
@@ -33,6 +33,7 @@ Servicios principales del stack:
 | `Redis + Celery` | Cola de tareas y trabajos programados |
 | `SearXNG` | Búsqueda web privada |
 | `Ollama` | Backend LLM local compatible con OpenAI, cómodo para portátiles y servidores |
+| `Perplexity CLI` | Agente opcional por terminal con herramientas para archivos, shell y sistema |
 
 ---
 
@@ -73,6 +74,15 @@ Pegaso usa Ollama como motor por defecto:
 - endpoint publicado en host en `http://localhost:11436/v1`
 - selección de modelo con `LLM_MODEL` en `.env`
 - descarga del modelo con `make pull`
+
+### CLI personal con Perplexity
+
+Pegaso también puede ejecutarse como asistente por terminal con herramientas locales:
+
+- CLI interactiva en `scripts/pegaso_cli.py`
+- agente en `src/services/perplexity_agent.py`
+- herramientas de sistema en `src/tools/computer_tools.py`
+- requiere `PERPLEXITY_API_KEY` para activar este modo
 
 ### Operación del sistema
 
@@ -150,6 +160,13 @@ SECRET_KEY=tu_clave_secreta
 POSTGRES_PASSWORD=tu_password
 LLM_MODEL=llama3.2:latest
 VLLM_API_BASE=http://ollama:11434/v1
+```
+
+Variables opcionales para la CLI con Perplexity:
+
+```env
+PERPLEXITY_API_KEY=tu_clave
+PERPLEXITY_MODEL=sonar-pro
 ```
 
 ### 3. Inicializar estructura
@@ -242,6 +259,27 @@ curl -X POST http://localhost:8080/voice/stt -F "file=@grabacion.wav"
 curl "http://localhost:8080/voice/tts?text=Hola%20desde%20Pegaso" --output respuesta.wav
 ```
 
+### CLI con Perplexity
+
+Modo interactivo:
+
+```bash
+python scripts/pegaso_cli.py
+```
+
+Modo de una sola orden:
+
+```bash
+python scripts/pegaso_cli.py "organiza ~/Descargas"
+python scripts/pegaso_cli.py "dame información del sistema"
+```
+
+Cambiar de modelo:
+
+```bash
+python scripts/pegaso_cli.py --model sonar-pro
+```
+
 ---
 
 ## Comandos útiles
@@ -324,6 +362,8 @@ POST /ops/power-profile?profile=balanced
 ├── docker/
 ├── scripts/
 ├── src/
+│   ├── services/
+│   └── tools/
 ├── data/          # ignorado por git
 ├── backups/       # ignorado por git
 ├── docker-compose.mvp.yml
@@ -338,6 +378,7 @@ POST /ops/power-profile?profile=balanced
 - `.env`, `data/` y `backups/` están fuera de control de versiones.
 - El repositorio está pensado para trabajar con datos locales y sensibles sin subirlos a Git.
 - El backend LLM por defecto es Ollama, configurado mediante `LLM_MODEL` y `VLLM_API_BASE`.
+- La CLI con Perplexity es opcional y necesita `PERPLEXITY_API_KEY` en tu entorno o en `.env`.
 - Revisa `CONNECTORS.md` y `SECURITY.md` para ampliar conectores y recomendaciones.
 
 ---
