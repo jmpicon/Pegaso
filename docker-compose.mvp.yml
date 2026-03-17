@@ -12,7 +12,11 @@ services:
   # Rendimiento máximo: continuous batching, PagedAttention, prefix caching
   # ============================================================
   fox:
-    image: ghcr.io/ferrumox/fox:latest
+    build:
+      context: docker/fox
+      dockerfile: Dockerfile
+      # args:
+      #   FOX_REF: v0.9.0   # ancla a una versión concreta
     container_name: pegaso-fox
     environment:
       FOX_MODEL_PATH: ${FOX_MODEL_PATH:-/models/model.gguf}
