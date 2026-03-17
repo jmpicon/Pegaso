@@ -4,7 +4,7 @@
 COMPOSE = docker compose -f docker-compose.mvp.yml
 PROJECT_DIR = /home/jmpicon/Documentos/Pegaso
 
-.PHONY: install install-service start stop restart logs status digest backup health index clean build help battery power-balanced power-perf power-save battery-setup
+.PHONY: install install-service start stop restart logs status digest backup health index clean build help battery power-balanced power-perf power-save battery-setup fox-models fox-health fox-metrics
 
 ## ── INSTALACIÓN ────────────────────────────────────────────
 install:        ## Instalación completa guiada (NVIDIA + batería + systemd + arranque)
@@ -13,11 +13,8 @@ install:        ## Instalación completa guiada (NVIDIA + batería + systemd + a
 install-service: ## Instala solo el servicio systemd de autoarranque
 	@sudo bash $(PROJECT_DIR)/scripts/install-service.sh
 
-configure-ollama: ## (una vez) Configura Ollama para que Docker pueda acceder al host
-	@sudo bash $(PROJECT_DIR)/scripts/configure-ollama.sh
-
 ## ── CICLO DE VIDA ──────────────────────────────────────────
-start:          ## Arranca Pegaso (sin vLLM — no necesita GPU)
+start:          ## Arranca Pegaso (requiere modelo GGUF en ./models/)
 	@echo "🐎 Iniciando Pegaso..."
 	$(COMPOSE) up -d --build
 	@echo "✅ Pegaso activo — http://localhost:3000"
@@ -30,16 +27,17 @@ stop:           ## Para todos los contenedores
 restart:        ## Reinicia el sistema completo
 	$(MAKE) stop && $(MAKE) start
 
-pull:           ## Descarga el modelo LLM en el contenedor Ollama
-	@echo "📥 Descargando modelo $(shell grep LLM_MODEL .env | cut -d= -f2)..."
-	@$(COMPOSE) exec ollama ollama pull $(shell grep LLM_MODEL .env | cut -d= -f2)
-	@echo "✅ Modelo descargado"
+fox-models:     ## Lista modelos disponibles en Fox
+	@curl -sf http://localhost:11436/v1/models | python3 -m json.tool
 
-models:         ## Lista modelos disponibles en el contenedor Ollama
-	@$(COMPOSE) exec ollama ollama list
+fox-health:     ## Estado del motor Fox (métricas de caché y rendimiento)
+	@curl -sf http://localhost:11436/health | python3 -m json.tool
 
-logs-llm:       ## Logs del motor LLM (contenedor Ollama)
-	$(COMPOSE) logs --tail=100 -f ollama
+fox-metrics:    ## Métricas Prometheus de Fox (throughput, latencia, caché)
+	@curl -sf http://localhost:11436/metrics
+
+logs-llm:       ## Logs del motor LLM (Fox)
+	$(COMPOSE) logs --tail=100 -f fox
 
 rebuild:        ## Reconstruye imágenes desde cero (sin caché)
 	$(COMPOSE) build --no-cache
@@ -80,8 +78,8 @@ logs-worker:    ## Logs del worker Celery
 logs-watcher:   ## Logs del Vault Watcher
 	$(COMPOSE) logs --tail=100 -f watcher
 
-logs-vllm:      ## Logs del motor LLM
-	$(COMPOSE) logs --tail=100 -f vllm
+logs-fox:       ## Logs del motor LLM (Fox)
+	$(COMPOSE) logs --tail=100 -f fox
 
 ## ── OPERACIONES ────────────────────────────────────────────
 digest:         ## Genera el Daily Digest ahora mismo

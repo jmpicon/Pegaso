@@ -5,27 +5,41 @@ networks:
 services:
 
   # ============================================================
-  # LLM ENGINE — Ollama en Docker (usa modelos del host ~/.ollama)
-  # Accesible en la red como ollama:11434
-  # El Ollama del host sigue corriendo — modelos compartidos (solo lectura)
-  # Para cambiar de modelo: edita LLM_MODEL en .env y ejecuta make pull
+  # LLM ENGINE — Ferrumox (Fox): motor de inferencia Rust de alto rendimiento
+  # Accesible en la red como fox:8080   → API OpenAI-compatible
+  # API externa en http://localhost:11436/v1
+  # Modelos GGUF en ./models/ — configura FOX_MODEL_PATH en .env
+  # Rendimiento máximo: continuous batching, PagedAttention, prefix caching
   # ============================================================
-  ollama:
-    image: ollama/ollama:latest
-    container_name: pegaso-ollama
+  fox:
+    image: ghcr.io/ferrumox/fox:latest
+    container_name: pegaso-fox
+    environment:
+      FOX_MODEL_PATH: ${FOX_MODEL_PATH:-/models/model.gguf}
+      FOX_PORT: "8080"
+      FOX_MAX_CONTEXT_LEN: ${FOX_MAX_CONTEXT_LEN:-8192}
+      FOX_GPU_MEMORY_FRACTION: ${FOX_GPU_MEMORY_FRACTION:-0.90}
+      FOX_MAX_BATCH_SIZE: ${FOX_MAX_BATCH_SIZE:-32}
     volumes:
-      - /usr/share/ollama/.ollama:/root/.ollama
+      - ./models:/models:ro
     ports:
-      - "11436:11434"
+      - "11436:8080"
     networks:
       - pegaso-net
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     healthcheck:
-      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
 
   # ============================================================
   # BASE DE DATOS — PostgreSQL (historial de conversaciones)
@@ -119,7 +133,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ollama:
+      fox:
         condition: service_healthy
     env_file:
       - .env

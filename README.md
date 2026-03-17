@@ -8,9 +8,9 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![GPU](https://img.shields.io/badge/GPU-Optional-76B900?style=flat-square&logo=nvidia&logoColor=white)](https://nvidia.com)
+[![GPU](https://img.shields.io/badge/GPU-NVIDIA-76B900?style=flat-square&logo=nvidia&logoColor=white)](https://nvidia.com)
 
-**Pegaso** combina chat local, RAG sobre tus documentos, búsqueda privada, voz offline, automatizaciones, un backend LLM local con Ollama y una CLI opcional con Perplexity para control del sistema.
+**Pegaso** combina chat local, RAG sobre tus documentos, búsqueda privada, voz offline, automatizaciones y un motor LLM local de alto rendimiento con **Ferrumox (Fox)**, un motor de inferencia escrito en Rust que exprime al máximo la GPU.
 
 [Inicio rápido](#inicio-rápido) · [Arquitectura](#arquitectura) · [Comandos](#comandos-útiles) · [API](#api-principal)
 
@@ -32,7 +32,7 @@ Servicios principales del stack:
 | `Qdrant` | Memoria vectorial para RAG |
 | `Redis + Celery` | Cola de tareas y trabajos programados |
 | `SearXNG` | Búsqueda web privada |
-| `Ollama` | Backend LLM local compatible con OpenAI, cómodo para portátiles y servidores |
+| `Ferrumox (Fox)` | Motor LLM local en Rust — continuous batching, PagedAttention, prefix caching |
 | `Perplexity CLI` | Agente opcional por terminal con herramientas para archivos, shell y sistema |
 
 ---
@@ -66,14 +66,19 @@ Los documentos añadidos a `data/vault/` se indexan para poder consultarlos desd
 - comando rápido: `make digest`
 - salida en `data/digests/`
 
-### Backend LLM local
+### Motor LLM — Ferrumox (Fox)
 
-Pegaso usa Ollama como motor por defecto:
+Pegaso usa **Fox** como motor de inferencia, diseñado para exprimir al máximo la GPU:
 
-- servicio Docker propio accesible como `ollama:11434`
-- endpoint publicado en host en `http://localhost:11436/v1`
-- selección de modelo con `LLM_MODEL` en `.env`
-- descarga del modelo con `make pull`
+- API completamente compatible con OpenAI (`/v1/chat/completions`, `/v1/models`)
+- Continuous batching con preemption LIFO
+- PagedAttention con copy-on-write por bloques
+- Prefix caching compatible con vLLM
+- Muestreo real: temperatura, top_p, top_k
+- Métricas Prometheus integradas
+- Motor Rust sobre llama.cpp — soporte de modelos GGUF
+
+El servicio queda accesible en la red Docker como `fox:8080` y en el host como `http://localhost:11436/v1`.
 
 ### CLI personal con Perplexity
 
@@ -108,7 +113,7 @@ Browser/Open-WebUI :3000
    +------------------> Qdrant :6333
    +------------------> Redis :6379
    +------------------> Celery worker / beat / watcher
-   +------------------> Ollama :11434
+   +------------------> Fox :8080 (LLM engine)
 ```
 
 Todo el entorno se orquesta con `docker-compose.mvp.yml`.
@@ -120,10 +125,9 @@ Todo el entorno se orquesta con `docker-compose.mvp.yml`.
 ### Software
 
 - Linux
-- Docker 24+ con Compose v2
+- Docker 24+ con Compose v2 y NVIDIA Container Toolkit
 - Python 3 para scripts auxiliares
-- Docker es suficiente para el modo base
-- GPU NVIDIA es opcional si quieres acelerar Ollama
+- Modelo GGUF descargado en `./models/` antes de arrancar
 
 ### Hardware
 
@@ -131,9 +135,9 @@ Todo el entorno se orquesta con `docker-compose.mvp.yml`.
 |---|---|---|
 | RAM | 16 GB | 32 GB |
 | CPU | 4 cores | 8+ cores |
-| GPU | opcional | NVIDIA con 6-8 GB VRAM o más |
+| GPU NVIDIA | 6 GB VRAM | 8–16 GB VRAM |
 
-Si no tienes GPU, Pegaso puede seguir funcionando con Ollama en CPU. También puedes apuntarlo a otro backend OpenAI-compatible cambiando `VLLM_API_BASE` en `.env`.
+Fox está optimizado para GPU NVIDIA. Para CPU-only, ajusta `FOX_GPU_MEMORY_FRACTION=0` en `.env`.
 
 ---
 
@@ -146,20 +150,40 @@ git clone https://github.com/jmpicon/Pegaso.git
 cd Pegaso
 ```
 
-### 2. Configurar variables
+### 2. Descargar un modelo GGUF
+
+Coloca un modelo GGUF en `./models/`. Ejemplos recomendados:
+
+```bash
+mkdir -p models
+# Llama 3.2 3B (ligero, rápido)
+wget -O models/llama-3.2-3b-instruct.Q8_0.gguf \
+  https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q8_0.gguf
+
+# Mistral 7B (balance rendimiento/calidad)
+# wget -O models/mistral-7b-instruct.Q6_K.gguf <url>
+```
+
+### 3. Configurar variables
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-Variables importantes:
+Variables clave:
 
 ```env
 SECRET_KEY=tu_clave_secreta
 POSTGRES_PASSWORD=tu_password
-LLM_MODEL=llama3.2:latest
-VLLM_API_BASE=http://ollama:11434/v1
+
+# Fox LLM
+LLM_MODEL=llama-3.2-3b-instruct
+VLLM_API_BASE=http://fox:8080/v1
+FOX_MODEL_PATH=/models/llama-3.2-3b-instruct.Q8_0.gguf
+FOX_MAX_CONTEXT_LEN=8192
+FOX_GPU_MEMORY_FRACTION=0.90
+FOX_MAX_BATCH_SIZE=32
 ```
 
 Variables opcionales para la CLI con Perplexity:
@@ -169,28 +193,16 @@ PERPLEXITY_API_KEY=tu_clave
 PERPLEXITY_MODEL=sonar-pro
 ```
 
-### 3. Inicializar estructura
+### 4. Inicializar estructura
 
 ```bash
 bash scripts/init.sh
 ```
 
-### 4. Arrancar servicios
+### 5. Arrancar servicios
 
 ```bash
 make start
-```
-
-### 5. Descargar el modelo LLM
-
-```bash
-make pull
-```
-
-Si quieres que Docker reutilice un Ollama del host o abrirlo a red local, puedes ejecutar antes:
-
-```bash
-make configure-ollama
 ```
 
 ### 6. Acceder
@@ -201,7 +213,9 @@ make configure-ollama
 | Swagger | `http://localhost:8080/docs` |
 | SearXNG | `http://localhost:8081` |
 | Qdrant | `http://localhost:6333/dashboard` |
-| Ollama API | `http://localhost:11436/v1` |
+| Fox API | `http://localhost:11436/v1` |
+| Fox health | `http://localhost:11436/health` |
+| Fox metrics | `http://localhost:11436/metrics` |
 
 ---
 
@@ -274,24 +288,18 @@ python scripts/pegaso_cli.py "organiza ~/Descargas"
 python scripts/pegaso_cli.py "dame información del sistema"
 ```
 
-Cambiar de modelo:
-
-```bash
-python scripts/pegaso_cli.py --model sonar-pro
-```
-
 ---
 
 ## Comandos útiles
 
 ```bash
 make help
-make configure-ollama
 make start
 make stop
 make restart
-make pull
-make models
+make fox-models        # lista modelos disponibles en Fox
+make fox-health        # estado del motor Fox
+make fox-metrics       # métricas Prometheus de Fox
 make status
 make health
 make logs
@@ -299,6 +307,7 @@ make logs-api
 make logs-worker
 make logs-watcher
 make logs-llm
+make logs-fox
 make digest
 make backup
 make index
@@ -360,6 +369,7 @@ POST /ops/power-profile?profile=balanced
 .
 ├── config/
 ├── docker/
+├── models/        # modelos GGUF (ignorado por git)
 ├── scripts/
 ├── src/
 │   ├── services/
@@ -375,9 +385,9 @@ POST /ops/power-profile?profile=balanced
 
 ## Seguridad y datos
 
-- `.env`, `data/` y `backups/` están fuera de control de versiones.
+- `.env`, `data/`, `backups/` y `models/` están fuera de control de versiones.
 - El repositorio está pensado para trabajar con datos locales y sensibles sin subirlos a Git.
-- El backend LLM por defecto es Ollama, configurado mediante `LLM_MODEL` y `VLLM_API_BASE`.
+- El motor LLM es Fox, configurado mediante `FOX_MODEL_PATH`, `LLM_MODEL` y `VLLM_API_BASE` en `.env`.
 - La CLI con Perplexity es opcional y necesita `PERPLEXITY_API_KEY` en tu entorno o en `.env`.
 - Revisa `CONNECTORS.md` y `SECURITY.md` para ampliar conectores y recomendaciones.
 
