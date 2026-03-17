@@ -7,7 +7,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: compilación ─────────────────────────────────────────────────────
-FROM rust:1.85-bookworm AS builder
+FROM rust:latest AS builder
 
 ARG FOX_REF=main
 
