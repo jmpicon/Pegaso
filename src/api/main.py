@@ -123,13 +123,9 @@ async def _llm_stream(messages: list) -> AsyncIterator[str]:
                             pass
     except httpx.ConnectError:
         yield (
-            "\n\n⚠️ **vLLM no disponible.** El motor de IA no está corriendo.\n\n"
-            "Para activarlo:\n"
-            "```bash\n"
-            "bash scripts/install-nvidia-toolkit.sh  # (solo la primera vez)\n"
-            "make start-gpu\n"
-            "```\n"
-            "O conecta un modelo externo actualizando `VLLM_API_BASE` en `.env`."
+            "\n\n⚠️ **Fox no disponible.** El motor LLM no está corriendo.\n\n"
+            "Verifica que hay un modelo GGUF en `./models/` y que `FOX_MODEL_PATH` en `.env` "
+            "apunta al fichero correcto, luego ejecuta `make start`."
         )
     except Exception as e:
         yield f"\n\n⚠️ Error de conexión con el LLM: `{type(e).__name__}`."
@@ -149,8 +145,8 @@ async def _llm_complete(messages: list) -> str:
             return resp.json()["choices"][0]["message"]["content"]
     except httpx.ConnectError:
         return (
-            "⚠️ **vLLM no está corriendo.** Para activarlo:\n"
-            "```bash\nbash scripts/install-nvidia-toolkit.sh\nmake start-gpu\n```"
+            "⚠️ **Fox no está corriendo.** Verifica el modelo GGUF en `./models/` "
+            "y ejecuta `make start`."
         )
     except Exception as e:
         return f"⚠️ Error conectando con el LLM: `{type(e).__name__}: {e}`"
@@ -169,12 +165,12 @@ async def health_full():
     """Estado detallado de todos los servicios."""
     checks = {}
     async with httpx.AsyncClient(timeout=4.0) as client:
-        # vLLM
+        # Fox
         try:
-            r = await client.get(f"{os.getenv('VLLM_API_BASE', 'http://vllm:8000/v1')}/models")
-            checks["vllm"] = {"status": "ok", "models": len(r.json().get("data", []))}
+            r = await client.get(f"{os.getenv('VLLM_API_BASE', 'http://fox:8080/v1')}/models")
+            checks["fox"] = {"status": "ok", "models": len(r.json().get("data", []))}
         except Exception as e:
-            checks["vllm"] = {"status": "error", "detail": str(e)[:80]}
+            checks["fox"] = {"status": "error", "detail": str(e)[:80]}
 
         # Qdrant
         try:
@@ -529,7 +525,7 @@ async def battery_status():
     gpu_power = result.get("gpu", {}).get("power_draw_w", 0)
     if gpu_power > 60 and bat.get("status") == "Discharging":
         recs.append(f"GPU consumiendo {gpu_power:.0f}W en batería. "
-                    f"Si no usas vLLM, para con 'make stop' para ahorrar ~{gpu_power:.0f}W.")
+                    f"Si no necesitas Fox, para con 'make stop' para ahorrar ~{gpu_power:.0f}W.")
     if not recs:
         recs.append("Sistema bien optimizado para batería.")
 

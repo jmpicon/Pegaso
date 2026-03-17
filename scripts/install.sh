@@ -145,13 +145,13 @@ VAULTEOF
 fi
 
 # ── [3] NVIDIA Container Toolkit ────────────────────────────
-step "[3/6] NVIDIA Container Toolkit (GPU para vLLM)"
+step "[3/6] NVIDIA Container Toolkit (GPU para Fox)"
 
 if [[ "$HAS_GPU" == "true" ]]; then
     if docker info 2>/dev/null | grep -q "nvidia"; then
         ok "NVIDIA Container Toolkit ya está configurado en Docker"
     else
-        if ask "¿Instalar NVIDIA Container Toolkit? (necesario para vLLM con GPU)"; then
+        if ask "¿Instalar NVIDIA Container Toolkit? (necesario para Fox con GPU)"; then
             bash "$SCRIPT_DIR/install-nvidia-toolkit.sh"
             ok "NVIDIA Container Toolkit instalado"
         else
@@ -159,7 +159,7 @@ if [[ "$HAS_GPU" == "true" ]]; then
         fi
     fi
 else
-    info "Sin GPU NVIDIA — vLLM correrá en modo CPU o desactivado"
+    warn "Sin GPU NVIDIA — Fox necesita GPU para rendimiento óptimo. Ajusta FOX_GPU_MEMORY_FRACTION=0 en .env para CPU."
 fi
 
 # ── [4] Optimización de batería ──────────────────────────────
@@ -233,8 +233,7 @@ echo "  ║      ✅  Instalación completada           ║"
 echo "  ╚═══════════════════════════════════════════╝"
 echo -e "${RESET}"
 echo -e "  ${BOLD}Comandos esenciales:${RESET}"
-echo -e "  ${CYAN}make start${RESET}        → Arrancar Pegaso"
-echo -e "  ${CYAN}make start-gpu${RESET}    → Arrancar con vLLM (GPU)"
+echo -e "  ${CYAN}make start${RESET}        → Arrancar Pegaso (pon modelo GGUF en ./models/ primero)"
 echo -e "  ${CYAN}make status${RESET}       → Ver contenedores"
 echo -e "  ${CYAN}make health${RESET}       → Health check completo"
 echo -e "  ${CYAN}make battery${RESET}      → Estado de batería"
