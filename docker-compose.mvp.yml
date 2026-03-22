@@ -21,9 +21,14 @@ services:
     environment:
       FOX_MODEL_PATH: ${FOX_MODEL_PATH:-/models/model.gguf}
       FOX_PORT: "8080"
-      FOX_MAX_CONTEXT_LEN: ${FOX_MAX_CONTEXT_LEN:-8192}
-      FOX_GPU_MEMORY_FRACTION: ${FOX_GPU_MEMORY_FRACTION:-0.90}
-      FOX_MAX_BATCH_SIZE: ${FOX_MAX_BATCH_SIZE:-32}
+      FOX_MAX_CONTEXT_LEN: ${FOX_MAX_CONTEXT_LEN:-16384}
+      FOX_GPU_MEMORY_FRACTION: ${FOX_GPU_MEMORY_FRACTION:-0.92}
+      FOX_MAX_BATCH_SIZE: ${FOX_MAX_BATCH_SIZE:-64}
+      FOX_NUM_THREADS: ${FOX_NUM_THREADS:-8}
+      FOX_ROPE_SCALING: ${FOX_ROPE_SCALING:-1.0}
+      FOX_FLASH_ATTN: ${FOX_FLASH_ATTN:-1}
+      FOX_LOG_LEVEL: ${FOX_LOG_LEVEL:-info}
+      RUST_LOG: ${RUST_LOG:-ferrumox=info}
     volumes:
       - ./models:/models:ro
     ports:
@@ -39,11 +44,11 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v1/models || exit 1"]
       interval: 20s
       timeout: 10s
-      retries: 5
-      start_period: 60s
+      retries: 8
+      start_period: 90s
 
   # ============================================================
   # BASE DE DATOS — PostgreSQL (historial de conversaciones)
@@ -74,7 +79,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: pegaso-redis
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --save 900 1 --save 300 10
     volumes:
       - ./data/redis:/data
     ports:
@@ -144,7 +149,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./config:/app/config
-      - ./data/vault:/app/data/vault:ro
+      - ./data/vault:/app/data/vault
       - ./data/digests:/app/data/digests
     ports:
       - "8080:8080"

@@ -94,7 +94,7 @@ NOTAS DEL VAULT:
 Genera el digest ahora:"""
 
     try:
-        vllm_url = f"{os.getenv('VLLM_API_BASE', 'http://vllm:8000/v1')}/chat/completions"
+        vllm_url = f"{os.getenv('VLLM_API_BASE', 'http://fox:8080/v1')}/chat/completions"
         with httpx.Client(timeout=120.0) as client:
             response = client.post(
                 vllm_url,
@@ -104,8 +104,10 @@ Genera el digest ahora:"""
                         {"role": "system", "content": "Eres Pegaso, un asistente IA local, cercano y profesional."},
                         {"role": "user", "content": prompt},
                     ],
-                    "max_tokens": 512,
-                    "temperature": 0.7,
+                    "max_tokens": 1024,
+                    "temperature": 0.75,
+                    "top_p": 0.95,
+                    "repeat_penalty": 1.1,
                 },
             )
             content = response.json()["choices"][0]["message"]["content"]
@@ -195,7 +197,7 @@ def health_check_task():
     """Comprueba la salud de todos los servicios internos."""
     import httpx
     services = {
-        "vllm": f"{os.getenv('VLLM_API_BASE', 'http://vllm:8000/v1')}/models",
+        "vllm": f"{os.getenv('VLLM_API_BASE', 'http://fox:8080/v1')}/models",
         "qdrant": "http://qdrant:6333/readyz",
         "api": "http://api:8080/health",
     }

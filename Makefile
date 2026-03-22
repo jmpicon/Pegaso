@@ -4,7 +4,7 @@
 COMPOSE = docker compose -f docker-compose.mvp.yml
 PROJECT_DIR = /home/jmpicon/Documentos/Pegaso
 
-.PHONY: install install-service start stop restart logs status digest backup health index clean build help battery power-balanced power-perf power-save battery-setup fox-models fox-health fox-metrics
+.PHONY: install install-service start stop restart logs status digest backup health index clean build help battery power-balanced power-perf power-save battery-setup fox-models fox-health fox-metrics tux tux-ops tux-friend resources processes system
 
 ## ── INSTALACIÓN ────────────────────────────────────────────
 install:        ## Instalación completa guiada (NVIDIA + batería + systemd + arranque)
@@ -120,6 +120,29 @@ clean:          ## Elimina contenedores, redes y volúmenes anónimos
 clean-digests:  ## Limpia todos los digests generados
 	@rm -f $(PROJECT_DIR)/data/digests/*.txt
 	@echo "🗑  Digests eliminados."
+
+## ── PEGASO TUX — Asistente pingüino ────────────────────────
+tux:            ## 🐧 Inicia Pegaso Tux (asistente pingüino interactivo)
+	@python3 $(PROJECT_DIR)/scripts/tux.py
+
+tux-ops:        ## 🐧 Tux en modo Ops (sistema y hardware)
+	@python3 $(PROJECT_DIR)/scripts/tux.py --persona ops
+
+tux-friend:     ## 🐧 Tux en modo Friend (personal y motivación)
+	@python3 $(PROJECT_DIR)/scripts/tux.py --persona friend
+
+tux-status:     ## 🐧 Estado del sistema (batería, CPU, RAM, GPU)
+	@python3 $(PROJECT_DIR)/scripts/tux.py --status
+
+## ── RECURSOS Y SISTEMA ─────────────────────────────────────
+resources:      ## Recursos del sistema en tiempo real (CPU, RAM, disco)
+	@curl -s http://localhost:8080/ops/resources | python3 -m json.tool
+
+processes:      ## Lista procesos ordenados por CPU
+	@curl -s "http://localhost:8080/ops/processes?sort_by=cpu" | python3 -m json.tool
+
+system:         ## Análisis completo del sistema con IA
+	@curl -s http://localhost:8080/ops/system | python3 -c "import sys,json; d=json.load(sys.stdin); print('=== ANÁLISIS IA ===\n'); print(d.get('ai_analysis','N/A'))"
 
 ## ── AYUDA ───────────────────────────────────────────────────
 help:           ## Muestra esta ayuda
