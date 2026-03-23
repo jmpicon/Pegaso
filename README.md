@@ -164,6 +164,8 @@ wget -O models/llama-3.2-3b-instruct.Q8_0.gguf \
 # wget -O models/mistral-7b-instruct.Q6_K.gguf <url>
 ```
 
+Importante: el nombre del archivo que descargues debe coincidir con `FOX_MODEL_PATH`. Si guardas el modelo como `models/mi-modelo.gguf`, en `.env` debes usar `FOX_MODEL_PATH=/models/mi-modelo.gguf`.
+
 ### 3. Configurar variables
 
 ```bash

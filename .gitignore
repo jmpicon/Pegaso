@@ -54,3 +54,8 @@ Thumbs.db
 *.safetensors
 models/*
 !models/.gitkeep
+
+# --- FOX (binarios compilados y fuente externa) ---
+fox-binary
+fox-binary-cuda
+/fox/

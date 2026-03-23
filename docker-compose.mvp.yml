@@ -5,53 +5,13 @@ networks:
 services:
 
   # ============================================================
-  # LLM ENGINE — Ferrumox (Fox): motor de inferencia Rust de alto rendimiento
-  # Accesible en la red como fox:8080   → API OpenAI-compatible
-  # API externa en http://localhost:11436/v1
-  # Modelos GGUF en ./models/ — configura FOX_MODEL_PATH en .env
-  # Rendimiento máximo: continuous batching, PagedAttention, prefix caching
+  # LLM ENGINE — Fox (Ferrumox) corre en el HOST, no en Docker
+  # glibc 2.39 del host (Ubuntu 24.04) es requerida por el binario
+  # Arrancar con: make fox  →  http://localhost:11436/v1
   # ============================================================
-  fox:
-    build:
-      context: docker/fox
-      dockerfile: Dockerfile
-      # args:
-      #   FOX_REF: v0.9.0   # ancla a una versión concreta
-    container_name: pegaso-fox
-    environment:
-      FOX_MODEL_PATH: ${FOX_MODEL_PATH:-/models/model.gguf}
-      FOX_PORT: "8080"
-      FOX_MAX_CONTEXT_LEN: ${FOX_MAX_CONTEXT_LEN:-16384}
-      FOX_GPU_MEMORY_FRACTION: ${FOX_GPU_MEMORY_FRACTION:-0.92}
-      FOX_MAX_BATCH_SIZE: ${FOX_MAX_BATCH_SIZE:-64}
-      FOX_NUM_THREADS: ${FOX_NUM_THREADS:-8}
-      FOX_ROPE_SCALING: ${FOX_ROPE_SCALING:-1.0}
-      FOX_FLASH_ATTN: ${FOX_FLASH_ATTN:-1}
-      FOX_LOG_LEVEL: ${FOX_LOG_LEVEL:-info}
-      RUST_LOG: ${RUST_LOG:-ferrumox=info}
-    volumes:
-      - ./models:/models:ro
-    ports:
-      - "11436:8080"
-    networks:
-      - pegaso-net
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v1/models || exit 1"]
-      interval: 20s
-      timeout: 10s
-      retries: 8
-      start_period: 90s
 
   # ============================================================
-  # BASE DE DATOS — PostgreSQL (historial de conversaciones)
+  # BASE DE DATOS — PostgreSQL
   # ============================================================
   db:
     image: postgres:15-alpine
@@ -63,7 +23,7 @@ services:
     volumes:
       - ./data/pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     networks:
       - pegaso-net
     restart: unless-stopped
@@ -83,7 +43,7 @@ services:
     volumes:
       - ./data/redis:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     networks:
       - pegaso-net
     restart: unless-stopped
@@ -102,8 +62,8 @@ services:
     volumes:
       - ./data/qdrant:/qdrant/storage
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     networks:
       - pegaso-net
     restart: unless-stopped
@@ -122,19 +82,22 @@ services:
     volumes:
       - ./config/searxng:/etc/searxng
     ports:
-      - "8081:8080"
+      - "127.0.0.1:8081:8080"
     networks:
       - pegaso-net
     restart: unless-stopped
 
   # ============================================================
-  # CORE API — FastAPI (STT, TTS, RAG, Chat)
+  # CORE API — FastAPI con network_mode: host
+  # Accede a Fox en localhost:11436 directamente
+  # Accede a DB/Redis/Qdrant en localhost:5432/6379/6333
   # ============================================================
   api:
     build:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: pegaso-api
+    network_mode: host
     depends_on:
       db:
         condition: service_healthy
@@ -142,8 +105,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      fox:
-        condition: service_healthy
+    environment:
+      VLLM_API_BASE: "http://localhost:11436/v1"
+      QDRANT_HOST: "localhost"
+      QDRANT_PORT: "6333"
+      REDIS_URL: "redis://localhost:6379/0"
+      SEARXNG_URL: "http://localhost:8081"
     env_file:
       - .env
     volumes:
@@ -151,10 +118,6 @@ services:
       - ./config:/app/config
       - ./data/vault:/app/data/vault
       - ./data/digests:/app/data/digests
-    ports:
-      - "8080:8080"
-    networks:
-      - pegaso-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
@@ -164,18 +127,23 @@ services:
       start_period: 60s
 
   # ============================================================
-  # WORKER CELERY — Tareas asíncronas (indexación, digest)
+  # WORKER CELERY — network_mode: host
   # ============================================================
   worker:
     build:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: pegaso-worker
+    network_mode: host
     depends_on:
       redis:
         condition: service_healthy
       db:
         condition: service_healthy
+    environment:
+      VLLM_API_BASE: "http://localhost:11436/v1"
+      QDRANT_HOST: "localhost"
+      REDIS_URL: "redis://localhost:6379/0"
     env_file:
       - .env
     command: celery -A src.worker.tasks worker --loglevel=info --concurrency=2 -Q default,indexing
@@ -184,44 +152,48 @@ services:
       - ./config:/app/config
       - ./data/vault:/app/data/vault
       - ./data/digests:/app/data/digests
-    networks:
-      - pegaso-net
     restart: unless-stopped
 
   # ============================================================
-  # CELERY BEAT — Scheduler para tareas programadas
+  # CELERY BEAT — network_mode: host
   # ============================================================
   beat:
     build:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: pegaso-beat
+    network_mode: host
     depends_on:
       redis:
         condition: service_healthy
+    environment:
+      VLLM_API_BASE: "http://localhost:11436/v1"
+      REDIS_URL: "redis://localhost:6379/0"
     env_file:
       - .env
     command: celery -A src.worker.tasks beat --loglevel=info --scheduler redbeat.RedBeatScheduler
     volumes:
       - ./src:/app/src
       - ./config:/app/config
-    networks:
-      - pegaso-net
     restart: unless-stopped
 
   # ============================================================
-  # VAULT WATCHER — Indexación incremental en tiempo real
+  # VAULT WATCHER — indexación incremental
   # ============================================================
   watcher:
     build:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: pegaso-watcher
+    network_mode: host
     depends_on:
       qdrant:
         condition: service_healthy
       redis:
         condition: service_healthy
+    environment:
+      QDRANT_HOST: "localhost"
+      REDIS_URL: "redis://localhost:6379/0"
     env_file:
       - .env
     command: python -m src.services.watcher
@@ -229,34 +201,32 @@ services:
       - ./src:/app/src
       - ./config:/app/config
       - ./data/vault:/app/data/vault
-    networks:
-      - pegaso-net
     restart: unless-stopped
 
   # ============================================================
   # INTERFAZ WEB — Open-WebUI
+  # Conecta a la API via localhost:8080 (host network)
   # ============================================================
   ui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: pegaso-ui
     ports:
       - "3000:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      - OPENAI_API_BASE_URL=http://api:8080/v1
+      - OPENAI_API_BASE_URL=http://host.docker.internal:8080/v1
       - OPENAI_API_KEY=local-pegaso
       - WEBUI_SECRET_KEY=${SECRET_KEY}
       - ENABLE_OLLAMA_API=false
     volumes:
       - ./data/open-webui:/app/backend/data
-    depends_on:
-      api:
-        condition: service_healthy
     networks:
       - pegaso-net
     restart: unless-stopped
 
   # ============================================================
-  # CRON — Backups automáticos nocturnos
+  # CRON — Backups automáticos
   # ============================================================
   cron:
     build:

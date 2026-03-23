@@ -27,17 +27,32 @@ stop:           ## Para todos los contenedores
 restart:        ## Reinicia el sistema completo
 	$(MAKE) stop && $(MAKE) start
 
+fox:            ## 🦊 Arranca Fox nativo en el host (usa modelos LM Studio)
+	@bash $(PROJECT_DIR)/scripts/fox-start.sh
+
+fox-stop:       ## Para Fox nativo en el host
+	@bash $(PROJECT_DIR)/scripts/fox-stop.sh
+
+fox-build:      ## Recompila Fox desde fuente (necesita git+cmake+libclang)
+	@cd /tmp && rm -rf fox-build && \
+	  git clone --recurse-submodules --depth 1 https://github.com/ferrumox/fox fox-build && \
+	  cd fox-build && \
+	  BINDGEN_EXTRA_CLANG_ARGS="-I/usr/lib/gcc/x86_64-linux-gnu/13/include -I/usr/include" \
+	  cargo build --release && \
+	  cp target/release/fox $(PROJECT_DIR)/fox-binary && \
+	  echo "✅ Fox compilado: $(PROJECT_DIR)/fox-binary"
+
 fox-models:     ## Lista modelos disponibles en Fox
 	@curl -sf http://localhost:11436/v1/models | python3 -m json.tool
 
-fox-health:     ## Estado del motor Fox (métricas de caché y rendimiento)
-	@curl -sf http://localhost:11436/health | python3 -m json.tool
+fox-health:     ## Estado del motor Fox
+	@curl -sf http://localhost:11436/health | python3 -m json.tool 2>/dev/null || echo "Fox no está corriendo. Ejecuta: make fox"
 
-fox-metrics:    ## Métricas Prometheus de Fox (throughput, latencia, caché)
-	@curl -sf http://localhost:11436/metrics
+fox-metrics:    ## Métricas Prometheus de Fox
+	@curl -sf http://localhost:11436/metrics || echo "Fox no está corriendo."
 
-logs-llm:       ## Logs del motor LLM (Fox)
-	$(COMPOSE) logs --tail=100 -f fox
+fox-logs:       ## Logs de Fox en tiempo real
+	@tail -f $(PROJECT_DIR)/data/logs/fox.log 2>/dev/null || echo "Fox no ha arrancado aún."
 
 rebuild:        ## Reconstruye imágenes desde cero (sin caché)
 	$(COMPOSE) build --no-cache

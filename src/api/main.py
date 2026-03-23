@@ -24,9 +24,11 @@ from src.db.models import init_db, SessionLocal, Conversation
 # ─────────────────────────────────────────────
 # Constantes
 # ─────────────────────────────────────────────
-FOX_BASE = os.getenv("VLLM_API_BASE", "http://fox:8080/v1")
+FOX_BASE = os.getenv("VLLM_API_BASE", "http://localhost:11436/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "pegaso")
 PEGASO_USER = os.getenv("PEGASO_USER", "José")
+QDRANT_URL = f"http://{os.getenv('QDRANT_HOST', 'localhost')}:{os.getenv('QDRANT_PORT', '6333')}"
+SEARXNG_URL_BASE = os.getenv("SEARXNG_URL", "http://localhost:8081")
 
 # ─────────────────────────────────────────────
 # App setup
@@ -273,14 +275,14 @@ async def health_full():
 
         # Qdrant
         try:
-            r = await client.get("http://qdrant:6333/readyz")
+            r = await client.get(f"{QDRANT_URL}/readyz")
             checks["qdrant"] = {"status": "ok" if r.status_code == 200 else "warn"}
         except Exception as e:
             checks["qdrant"] = {"status": "error", "detail": str(e)[:80]}
 
         # SearXNG
         try:
-            r = await client.get("http://searxng:8080/stats")
+            r = await client.get(f"{SEARXNG_URL_BASE}/stats")
             checks["searxng"] = {"status": "ok"}
         except Exception as e:
             checks["searxng"] = {"status": "error", "detail": str(e)[:80]}
@@ -615,10 +617,9 @@ async def trigger_daily_digest():
 @app.get("/search")
 async def search_internet(q: str):
     """Búsqueda web privada via SearXNG."""
-    searxng_url = os.getenv("SEARXNG_URL", "http://searxng:8080")
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            resp = await client.get(f"{searxng_url}/search", params={"q": q, "format": "json"})
+            resp = await client.get(f"{SEARXNG_URL_BASE}/search", params={"q": q, "format": "json"})
             return resp.json()
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"SearXNG no disponible: {e}")

@@ -29,7 +29,8 @@ RUN git clone --recurse-submodules --depth 1 \
 RUN cargo build --release
 
 # ── Stage 2: runtime mínimo ──────────────────────────────────────────────────
-FROM debian:bookworm-slim AS runtime
+# ubuntu:24.04 incluye glibc 2.39, compatible con binarios compilados en rust:latest
+FROM ubuntu:24.04 AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
